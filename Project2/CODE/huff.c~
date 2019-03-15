@@ -1,0 +1,47 @@
+#include <stdio.h>
+#include <memory.h>
+#include <stdlib.h>
+
+#include "compress.h"
+
+#define MAX_LEAF 257
+
+int main(int argc, char* argv[])
+{
+	// open input file from command line.
+	int fd = open_file(argc, argv[1]);
+	if (fd == -1) // can not open input file.
+		return 0;
+
+	// store the number of times every character occurs.
+	int count[256]; 
+	memset(count, 0, 256 * sizeof(int));
+
+	int total = count_times(fd, count);
+	if (total == 0)
+	{
+		empty_file(argv[1]);
+		return 0;
+	}
+
+	// create leaf nodes use character and its times.
+	info base;
+	base.size = 0;
+	base.root = NULL;
+
+	create_leaf(&base, count);
+
+	// create Huffman tree
+	create_tree(&base);
+
+	table* tb = (table*)malloc(base.size * sizeof(table));
+	//table* tb = (table*)malloc(257 * sizeof(table));
+
+	// get Huffman code
+	get_huffman_code(&base, tb);
+
+	// compress file
+	compress(fd, argv[1], tb, &base);
+
+   	return 0; 
+}

@@ -1,0 +1,438 @@
+#include <fcntl.h>
+#include <unistd.h>
+#include <stdlib.h>
+#include <string.h>
+
+#include "compress.h"
+
+int open_file(int argc, char* path)
+{
+	if (argc == 1) // no command line argument.
+		return -1;
+
+	int fd = open(path, O_RDONLY); // open input file.
+
+	if (fd == -1) // can not open.
+		return -1;
+
+	return fd;
+}
+
+int count_times(int fd, int* count)
+{
+	ssize_t nbytes = 1;
+	char rd;
+	int total = 0;
+
+	while (1)
+	{
+		nbytes = read(fd, &rd, 1); // read one character from input file every time.
+		total += nbytes;
+		if (nbytes == 1)
+			count[(unsigned)rd]++;
+		else
+			break ;
+	}
+	return total;
+}
+
+void empty_file(char* arg)
+{
+	char path[20];
+	strcpy(path, "");
+	strcat(path, arg);
+	strcat(path, ".huff");
+	open(path, O_WRONLY | O_CREAT | O_TRUNC, FILE_MODE);
+}
+
+void create_leaf(info* base, int* count)
+{
+	for (int i = 0; i < 256; i++)
+	{
+		if (count[i] == 0)
+			continue ;
+
+		// allocate one leaf node and initialize it, then put it to leaf node array.
+		h_node* node = (h_node*)malloc(sizeof(h_node));
+		node->id = i;
+		node->count = count[i];
+		strcpy(node->code, "");
+		node->parent = NULL;
+		node->left = NULL;
+		node->right = NULL;
+		base->leaf_node[base->size++] = node;
+	}
+
+	// put pseudo-EOF to leaf node array.
+	h_node* node = (h_node*)malloc(sizeof(h_node));
+	node->id = 256; // pseudo-EOF character
+	node->count = 1;
+	strcpy(node->code, "");
+	node->parent = NULL;
+	node->left = NULL;
+	node->right = NULL;
+	base->leaf_node[base->size++] = node;
+}
+
+void create_tree(info* base)
+{
+	while (!empty(base->leaf_node, base->size))
+	{
+		// first leaf node
+		int index = top(base->leaf_node, base->size);
+		h_node* first = base->leaf_node[index];
+		pop(base->leaf_node, index);
+
+		// only one leaf node => root node
+		if (empty(base->leaf_node, base->size))
+		{
+			base->root = first;
+			break;
+		}
+
+		// second leaf node
+		index = top(base->leaf_node, base->size);
+		h_node* second = base->leaf_node[index];
+		pop(base->leaf_node, index);
+
+		// new internal node
+		h_node* inter_node = (h_node*)malloc(sizeof(h_node));
+		inter_node->count = first->count + second->count;
+		inter_node->left = inter_node->right = inter_node->parent = NULL;
+		strcpy(inter_node->code, "");
+
+		// set internal node's left child node and right child node.
+		if (first->count <= second->count)
+		{
+			inter_node->left = first;
+			inter_node->right = second;
+		}
+		else
+		{
+			inter_node->left = second;
+			inter_node->right = first;
+		}
+		first->parent = second->parent = inter_node;
+
+		// push new node to node array.
+		push(inter_node, base->leaf_node, base->size);
+	}
+}
+
+void create_table(h_node* node, bool left, table* tb)
+{
+	if (left)
+	{
+		char tmp[20];
+		strcpy(tmp, "");
+		strcat(tmp, node->parent->code);
+		strcat(tmp, "0");
+		strcat(node->code, tmp);
+	}
+	else
+	{
+		char tmp[20];
+		strcpy(tmp, "");
+		strcat(tmp, node->parent->code);
+		strcat(tmp, "1");
+		strcat(node->code, tmp);
+	}
+
+	static int count = 0;
+	if (node->left == NULL && node->right == NULL)
+	{
+		tb[count].code = node->code;
+		tb[count].id = node->id;
+		count++;
+	}
+	else
+	{
+		if (node->left != NULL)
+			create_table(node->left, true, tb);
+		if (node->right != NULL)
+			create_table(node->right, false, tb);
+	}
+}
+
+void get_huffman_code(info* base, table* tb)
+{
+	if (base->root->left != NULL)
+		create_table(base->root->left, true, tb);
+
+	if (base->root->right != NULL)
+		create_table(base->root->right, false, tb);
+}
+
+void compress(int fd, char* path, table* tb, info* base)
+{
+	// compressed file name.
+	char outpath[20];
+	strcpy(outpath, "");
+	strcat(outpath, path);
+	strcat(outpath, ".huff");
+
+
+	// create new compressed file.
+	int fd2 = open(outpath, O_WRONLY | O_CREAT | O_TRUNC, FILE_MODE);
+
+	// output the number of leaf nodes to compressed file.
+	char str[33];
+	sprintf(str, "%d", base->size);
+	strcat(str, "\n");
+	write(fd2, str, strlen(str));
+
+	// output character's ascii code and huffman code to compressed file.
+	for (int i = 0; i < base->size; i++)
+	{
+		char str[4];
+		sprintf(str, "%d", tb[i].id);
+		write(fd2, str, strlen(str));
+
+		char tmp[30];
+		strcpy(tmp, " ");
+		strcat(tmp, tb[i].code);
+		strcat(tmp, "\n");
+
+		write(fd2, tmp, strlen(tmp));
+	}
+
+	lseek(fd, 0, SEEK_SET);
+	char ch;
+	char buf[60];
+	strcpy(buf, "");
+
+	// read one character from input file every time.
+	while (read(fd, &ch, 1) == 1)
+	{
+		char* str = NULL;
+		str = find((unsigned char)ch, base->size, tb);
+		if (str == NULL)
+			printf("error in compress\n");
+
+		strcat(buf, str);
+
+		// output compressed content to compressed file every 8 bit.
+		if (strlen(buf) >= 8)
+		{
+			int i;
+			for (i = 0; i + 7 < strlen(buf); i += 8)
+			{
+				unsigned char out = 0;
+
+				for (int j = 0; j < 8; j++)
+				{
+					out = out << 1;
+					if (buf[i + j] == '0')
+						out += 0;
+					else
+						out += 1;
+				}
+				write(fd2, &out, 1);
+			}
+
+			// the last bits.
+			char tmp[10];
+			strcpy(tmp, "");
+			strncat(tmp, buf + i, strlen(buf) - i);
+			strcpy(buf, tmp);
+		}
+	}
+
+	// output last bits and pseudo-EOF to compressed file.
+	char* s = find(256, base->size, tb);
+	strcat(buf, s);
+
+	int length = strlen(buf);
+	unsigned char out = 0;
+	for (int i = 0; i < length; i++)
+	{
+		out = out << 1;
+		if (buf[i] == '0')
+			out += 0;
+		else
+			out += 1;
+		//if (((i + 1) % 8 == 0) || (i == length - 1))
+		if ((i + 1) % 8 == 0) 
+		{
+			write(fd2, &out, 1);
+			out = 0;
+		}
+
+		if (i == length - 1)
+			out = out << (8 - (i + 1));
+	}
+}
+
+char* find(int ch, int size, table* tb)
+{
+	for (int i = 0; i < size; i++)
+	{
+		if (tb[i].id == ch)
+			return tb[i].code;
+	}
+}
+
+int empty(h_node** arr, int size)
+{
+	for (int i = 0; i < size; i++)
+	{
+		if (arr[i] != NULL)
+			return 0;
+	}
+	return 1;
+}
+
+int top(h_node** arr, int size)
+{
+	int min;
+	bool flag = true;
+
+	for (int i = 1; i < size; i++)
+	{
+		if (flag && arr[i] != NULL)
+		{
+			min = i;
+			flag = false;
+		}
+
+		if (arr[i] != NULL)
+		{
+			if (arr[i]->count < arr[min]->count)
+				min = i;
+		}
+	}
+	return min;
+}
+
+void pop(h_node** arr, int index)
+{
+	arr[index] = NULL;
+}
+
+void push(h_node* node, h_node** arr, int size)
+{
+	for (int i = 0; i < size; i++)
+	{
+		if (arr[i] == NULL)
+		{
+			arr[i] = node;
+			break;
+		}
+	}
+}
+
+void rebuild_tree(h_node* root, FILE* file)
+{
+	// get the num of leaf nodes.
+	char num[10];
+	fgets(num, 10, file);
+	int size = atoi(num);
+
+	h_node* node;
+	h_node* tmp_node;
+
+	for (int i = 0; i < size; i++)
+	{
+		// get ascii code and huffman code.
+		char buf[40];
+		fgets(buf, 40, file);
+
+		char id[6];
+		char code[30];
+		strcpy(id, "");
+		strcpy(code, "");
+
+		int j;
+		for (j = 0; j < strlen(buf); j++)
+		{
+			if (buf[j] == ' ')
+				break ;
+		}
+		strncpy(id, buf, j);
+		id[j] = '\0';
+		strncpy(code, buf + j + 1, strlen(buf) - (j + 2));
+		code[strlen(buf) - (j + 2)] = '\0';
+
+		int node_id = atoi(id);
+
+		// put leaf node to its postion in huffman tree by its huffman code
+		int length = strlen(code);
+		node = root;
+
+		for (j = 0; j < length; j++)
+		{
+			if (code[j] == '0')
+				tmp_node = node->left;
+			else
+				tmp_node = node->right;
+
+			// empty, create a new node
+			if (tmp_node == NULL)
+			{
+				h_node* new_node = (h_node*)malloc(sizeof(h_node));
+				new_node->left = NULL;
+				new_node->right = NULL;
+				new_node->parent = node;
+
+				// arrive to leaf node
+				if (j == length - 1)
+				{
+					new_node->id = node_id;
+					strcpy(new_node->code, code);
+				}
+
+				if (code[j] == '0')
+					node->left = new_node;
+				else
+					node->right = new_node;
+
+				tmp_node = new_node;
+			}
+			node = tmp_node;
+		}
+	}
+}
+
+void decompress(h_node* root, char* path, FILE* file)
+{
+	char out[20];
+	strcpy(out, "");
+	strcat(out, path);
+	strcat(out, ".unhuff");
+	int fd = open(out, O_WRONLY | O_CREAT | O_TRUNC, FILE_MODE);
+
+	h_node* node = root;
+	char c;
+	bool eof = true;
+
+	while (eof && (fread(&c, 1, 1, file) == 1))
+	{
+		unsigned char uc = (unsigned char)c;
+		unsigned flag = 0x80;
+
+		for (int i = 0; i < 8; i++)
+		{
+			if (uc & flag)
+				node = node->right;
+			else
+				node = node->left;
+
+			// arrive at leaf node
+			if (node->left == NULL && node->right == NULL)
+			{
+				if (node->id == 256) // arrive at pseudo-EOF
+				{
+					eof = false;
+					break;
+				}
+				else
+				{
+					write(fd, &node->id, 1);
+					node = root;
+				}
+			}
+
+			flag = flag >> 1;
+		}
+	}
+}

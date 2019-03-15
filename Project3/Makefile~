@@ -1,0 +1,30 @@
+CFLAGS = -std=c99 -g -Wall -Wshadow --pedantic -Wunreachable-code -Wvla -Werror -Wunreachable-code
+COVFLAGS = 
+PROFFLAG = 
+GCC = gcc $(CFLAGS) $(COVFLAGS) $(PROFFLAG)
+
+all: pa15.o
+	$(GCC) pa15.o -o pa15
+.c.o: 
+	$(GCC) -c $*.c
+
+testall:all
+	./pa15 inputs/basic 1_sorted 1_huffman 1_header
+	./pa15 inputs/gophers 2_sorted 2_huffman 2_header
+	./pa15 inputs/para 3_sorted 3_huffman 3_header
+	./pa15 inputs/woods 4_sorted 4_huffman 4_header
+	./pa15 inputs/prideandprejudice 5_sorted 5_huffman 5_header
+memory:all
+	valgrind --tool=memcheck --leak-check=full ./pa15 inputs/basic 1_sorted 1_huffman 1_header
+	valgrind --tool=memcheck --leak-check=full ./pa15 inputs/gophers 2_sorted 2_huffman 2_header
+	valgrind --tool=memcheck --leak-check=full ./pa15 inputs/para 3_sorted 3_huffman 3_header
+	valgrind --tool=memcheck --leak-check=full ./pa15 inputs/woods 4_sorted 4_huffman 4_header
+	valgrind --tool=memcheck --leak-check=full ./pa15 inputs/prideandprejudice 5_sorted 5_huffman 5_header
+clean:
+	/bin/rm -f *.o
+	/bin/rm -f pa15
+	/bin/rm -f 1_sorted 1_huffman 1_header
+	/bin/rm -f 2_sorted 2_huffman 2_header
+	/bin/rm -f 3_sorted 3_huffman 3_header
+	/bin/rm -f 4_sorted 4_huffman 4_header
+	/bin/rm -f 5_sorted 5_huffman 5_header

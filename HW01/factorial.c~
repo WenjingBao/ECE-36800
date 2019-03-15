@@ -1,0 +1,17 @@
+#include <stdio.h>
+
+int main()
+{
+  int n = 0;
+  printf("input:");
+  scanf("%d", n);
+  printf("%d",n);
+  int i = 1;
+  while(n > i){
+    n = n / i;
+    i++;
+  }
+  printf("%d\n", i);
+
+  return 0;
+}

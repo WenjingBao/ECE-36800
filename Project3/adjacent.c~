@@ -1,0 +1,124 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <sys/types.h>
+#include <sys/time.h>
+#include <sys/resource.h>
+#include <time.h>
+
+#define ERROR -1 // Generic error
+
+// structures
+typedef struct vert
+{
+  int x; // x coordination
+  int y; // y coordination
+  int dist; // current shortest distance when Dijkstra
+  struct vert *from; // traceback
+}vert;
+
+/* Function Prototypes */
+void readmap(char *Filename, int ** edges, vert * vertices, int *vsize, int *esize);
+void ms2(int ** edges, int vsize);
+
+void readmap(char *Filename, int ** edges, vert * vertices, int *vsize, int *esize){
+  int i = 0, j = 0, a, b;
+  FILE * inFile = fopen(Filename, "r");
+//check open
+  if (inFile == NULL){
+    fprintf(stderr, "can't open the input file.\n");
+    return;
+  }
+//read size
+  int test = fscanf(inFile, "%d %d\n", vsize, esize);
+  if (test != 2){
+    fprintf(stderr, "Fail to read size.\n");
+    return;
+  }
+  //fprintf(stderr, "%d %d\n", *vsize, *esize);
+
+//malloc
+  vertices = malloc(sizeof(vert) * *vsize);
+  edges = malloc(sizeof(int *) * *vsize);
+  for(i = 0; i < *vsize; i++){
+    edges[i] = malloc(sizeof(int) * *vsize);
+  }
+  //fprintf(stderr, "malloced\n");
+
+//reset
+  for(i = 0; i < *vsize; i++){
+    vertices[i].x = 0;
+    vertices[i].y = 0;
+    vertices[i].dist = -1;
+    vertices[i].from = NULL;
+  }
+
+  for(i = 0; i < *vsize; i++){
+    for(j = 0; j < *vsize; j++){
+      edges[i][j] = 0;
+    }
+  }
+  //fprintf(stderr, "reset done\n");
+//scan number
+  for(i = 0; i < *vsize; i++){
+    fscanf(inFile, "%d %d %d\n", &j, &vertices[i].x, &vertices[i].y);
+    fprintf(stderr, "%d %d\n", vertices[i].x, vertices[i].y);
+    if(i != j){
+      fprintf(stderr, "index error when reading vertices\n");
+      return;
+    }
+  }
+  //fprintf(stderr, "vertices read\n");
+
+  for(i = 0;i < *esize; i++){
+    fscanf(inFile, "%d %d\n", &a,&b);
+    edges[a][b] = 1;
+    //fprintf(stderr, "%d %d\n", edges[0][i], edges[1][i]);
+  }
+  fprintf(stderr, "edges read\n");
+//close file
+  fclose(inFile);
+
+  return;
+}
+
+void ms2(int ** edges, int vsize){
+  int i = 0, j = 0;
+  for(i = 0; i < vsize; i++){
+    fprintf(stderr, "%d:", i);
+    for(j = 0; j < vsize; j++){
+      if(edges[i][j] == 1){
+	fprintf(stderr, " %d", j);
+      }
+    }
+    fprintf(stderr, "\n");
+  }
+}
+
+int main (int Argc, char **Argv){
+  if(Argc != 2){
+    printf("wrong number of arguements");
+    return ERROR;
+  }
+
+  int i = 0;
+  int ** edges = NULL;
+  vert * vertices = NULL;
+  int vsize = 0;
+  int esize = 0;
+  
+  readmap(Argv[1], edges, vertices, &vsize, &esize);
+  for(i = 0; i < vsize; i++){
+    fprintf(stderr, "%d %d %d\n", i, vertices[i].x, vertices[i].y);
+  }
+
+  ms2(edges, vsize);
+  fprintf(stderr, "printed\n");
+
+  free(vertices);
+  for(i = 0; i < vsize; i++){
+    free(edges[i]);
+  }
+  free(edges);
+
+  return 0;
+}
